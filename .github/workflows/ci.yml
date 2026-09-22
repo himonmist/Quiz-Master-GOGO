@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests (scoring engine)
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+        env:
+          # Dummy values so the build's env validation passes; no real DB
+          # access happens at build time (every DB-backed route is dynamic).
+          DATABASE_URL: "postgresql://user:pass@localhost:5432/db"
+          DIRECT_URL: "postgresql://user:pass@localhost:5432/db"
+          JWT_SECRET: "ci-build-only-secret"

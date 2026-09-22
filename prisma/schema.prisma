@@ -1,0 +1,536 @@
+// Quiz Master GOGO — core data model
+// Design: multi-tenant (Organization-scoped), server-authoritative quiz engine,
+// audit-logged, soft-deletable where records may be referenced by history.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------- Enums ----------
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  QUIZ_MANAGER
+  PARTICIPANT
+}
+
+enum CourseStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum QuizStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum QuizMode {
+  PRACTICE
+  COMPETITION
+}
+
+enum CompetitionMode {
+  STANDARD
+  LIVE_COMPETITION
+  TIME_ATTACK
+  CERTIFICATION_EXAM
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  IMAGE_BASED
+  SCENARIO
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum AnswerRevealPolicy {
+  IMMEDIATE
+  AFTER_QUIZ
+  AFTER_COMPETITION
+  NEVER
+}
+
+enum AttemptStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum AttemptQuestionStatus {
+  PENDING
+  ANSWERED
+  TIMED_OUT
+}
+
+enum SuspiciousEventType {
+  TAB_SWITCH
+  WINDOW_BLUR
+  COPY_ATTEMPT
+  PASTE_ATTEMPT
+  FULLSCREEN_EXIT
+  RAPID_SUBMIT
+  MULTIPLE_TABS
+}
+
+enum VerificationTokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// ---------- Core tenancy & identity ----------
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users        User[]
+  courses      Course[]
+  quizzes      Quiz[]
+  categories   Category[]
+  questions    Question[]
+  certificates Certificate[]
+  auditLogs    AuditLog[]
+  notifications Notification[]
+
+  @@map("organizations")
+}
+
+model User {
+  id               String    @id @default(cuid())
+  organizationId   String?
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+  email            String    @unique
+  passwordHash     String
+  fullName         String
+  mobileNumber     String?
+  designation      String?
+  country          String?
+  role             Role      @default(PARTICIPANT)
+  isActive         Boolean   @default(true)
+  emailVerifiedAt  DateTime?
+  termsAcceptedAt  DateTime?
+  lastLoginAt      DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  sessions            Session[]
+  verificationTokens  VerificationToken[]
+  courseEnrollments   CourseParticipant[]
+  quizAttempts        QuizAttempt[]
+  createdQuestions    Question[]          @relation("QuestionCreatedBy")
+  createdQuizzes      Quiz[]              @relation("QuizCreatedBy")
+  certificates        Certificate[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  suspiciousEvents    SuspiciousEvent[]
+  scoreAdjustments    ScoreRecord[]       @relation("ScoreAdjustedBy")
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  userAgent  String?
+  ipAddress  String?
+  rememberMe Boolean   @default(false)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  id         String                @id @default(cuid())
+  userId     String
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       VerificationTokenType
+  tokenHash  String                @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime              @default(now())
+
+  @@index([userId, type])
+  @@map("verification_tokens")
+}
+
+// ---------- Courses ----------
+
+model Course {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  title          String
+  description    String?
+  instructor     String?
+  startDate      DateTime?
+  endDate        DateTime?
+  status         CourseStatus @default(DRAFT)
+  deletedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  participants CourseParticipant[]
+  quizzes      Quiz[]
+  questions    Question[]
+  certificates Certificate[]
+
+  @@index([organizationId])
+  @@map("courses")
+}
+
+model CourseParticipant {
+  id         String   @id @default(cuid())
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrolledAt DateTime @default(now())
+
+  @@unique([courseId, userId])
+  @@index([userId])
+  @@map("course_participants")
+}
+
+// ---------- Question bank ----------
+
+model Category {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  createdAt      DateTime     @default(now())
+
+  questions Question[]
+
+  @@unique([organizationId, name])
+  @@map("categories")
+}
+
+model Question {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  courseId       String?
+  course         Course?      @relation(fields: [courseId], references: [id])
+  categoryId     String?
+  category       Category?    @relation(fields: [categoryId], references: [id])
+  type           QuestionType @default(SINGLE_CHOICE)
+  text           String
+  imageUrl       String?
+  videoUrl       String?
+  difficulty     Difficulty   @default(MEDIUM)
+  marks          Int          @default(10)
+  timeLimitSeconds Int        @default(20)
+  negativeMarks  Int          @default(0)
+  explanation    String?
+  tags           String[]     @default([])
+  isActive       Boolean      @default(true)
+  deletedAt      DateTime?
+  createdById    String
+  createdBy      User         @relation("QuestionCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  options      QuestionOption[]
+  quizQuestions QuizQuestion[]
+  answers      Answer[]
+
+  @@index([organizationId])
+  @@index([courseId])
+  @@map("questions")
+}
+
+model QuestionOption {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean  @default(false)
+  order      Int
+
+  @@index([questionId])
+  @@map("question_options")
+}
+
+// ---------- Quizzes ----------
+
+model Quiz {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  courseId       String
+  course         Course          @relation(fields: [courseId], references: [id])
+  title          String
+  description    String?
+  difficulty     Difficulty      @default(MEDIUM)
+  numQuestions   Int
+  perQuestionTimeSeconds Int     @default(20)
+  startAt        DateTime?
+  endAt          DateTime?
+  attemptLimit   Int             @default(1)
+  passingScore   Int             @default(0)
+  mode           QuizMode        @default(PRACTICE)
+  competitionMode CompetitionMode @default(STANDARD)
+  randomQuestionOrder Boolean    @default(true)
+  randomAnswerOrder   Boolean    @default(true)
+  negativeMarking     Boolean    @default(false)
+  speedBonusEnabled   Boolean    @default(true)
+  difficultyWeightingEnabled Boolean @default(false)
+  accuracyWeightPercent Int      @default(80)
+  speedWeightPercent    Int      @default(20)
+  leaderboardVisible  Boolean    @default(true)
+  resultVisibility    AnswerRevealPolicy @default(AFTER_QUIZ)
+  status         QuizStatus      @default(DRAFT)
+  deletedAt      DateTime?
+  createdById    String
+  createdBy      User            @relation("QuizCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  quizQuestions QuizQuestion[]
+  attempts      QuizAttempt[]
+  certificates  Certificate[]
+
+  @@index([organizationId])
+  @@index([courseId])
+  @@index([status])
+  @@map("quizzes")
+}
+
+model QuizQuestion {
+  id         String   @id @default(cuid())
+  quizId     String
+  quiz       Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id])
+  order      Int
+
+  @@unique([quizId, questionId])
+  @@unique([quizId, order])
+  @@map("quiz_questions")
+}
+
+// ---------- Attempts, answers, scoring ----------
+
+model QuizAttempt {
+  id                   String        @id @default(cuid())
+  quizId               String
+  quiz                 Quiz          @relation(fields: [quizId], references: [id])
+  userId               String
+  user                 User          @relation(fields: [userId], references: [id])
+  attemptNumber        Int           @default(1)
+  status               AttemptStatus @default(NOT_STARTED)
+  questionOrder        String[]      @default([]) // question IDs in this participant's randomized order
+  currentQuestionIndex Int           @default(0)
+  startedAt            DateTime?
+  completedAt          DateTime?
+  totalScore           Float         @default(0)
+  correctCount         Int           @default(0)
+  incorrectCount       Int           @default(0)
+  unansweredCount      Int           @default(0)
+  totalResponseTimeMs  BigInt        @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  attemptQuestions QuizAttemptQuestion[]
+  answers          Answer[]
+  suspiciousEvents SuspiciousEvent[]
+  scoreRecords     ScoreRecord[]
+  certificate      Certificate?
+
+  @@unique([quizId, userId, attemptNumber])
+  @@index([quizId])
+  @@index([userId])
+  @@index([quizId, status])
+  @@map("quiz_attempts")
+}
+
+// One row per question served to a specific attempt — carries the
+// server-side timing that is authoritative for scoring.
+model QuizAttemptQuestion {
+  id               String                 @id @default(cuid())
+  attemptId        String
+  attempt          QuizAttempt            @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId       String
+  order            Int
+  optionOrder      String[]               @default([]) // option IDs in this participant's randomized order
+  serverStartedAt  DateTime?
+  serverDeadlineAt DateTime?
+  submittedAt      DateTime?
+  status           AttemptQuestionStatus  @default(PENDING)
+
+  answer Answer?
+
+  @@unique([attemptId, questionId])
+  @@unique([attemptId, order])
+  @@index([attemptId])
+  @@map("quiz_attempt_questions")
+}
+
+model Answer {
+  id                  String   @id @default(cuid())
+  attemptId           String
+  attempt             QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  attemptQuestionId   String   @unique
+  attemptQuestion     QuizAttemptQuestion @relation(fields: [attemptQuestionId], references: [id], onDelete: Cascade)
+  questionId          String
+  question            Question @relation(fields: [questionId], references: [id])
+  selectedOptionIds   String[] @default([])
+  isCorrect           Boolean
+  responseTimeMs      Int
+  baseScore           Float
+  speedScore          Float
+  difficultyMultiplier Float   @default(1)
+  questionScore       Float
+  createdAt           DateTime @default(now())
+
+  @@index([attemptId])
+  @@index([questionId])
+  @@map("answers")
+}
+
+// Manual score adjustments / dispute resolution — every override is audited.
+model ScoreRecord {
+  id             String      @id @default(cuid())
+  attemptId      String
+  attempt        QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  reason         String
+  previousScore  Float
+  newScore       Float
+  note           String?
+  adjustedById   String
+  adjustedBy     User        @relation("ScoreAdjustedBy", fields: [adjustedById], references: [id])
+  createdAt      DateTime    @default(now())
+
+  @@index([attemptId])
+  @@map("score_records")
+}
+
+// ---------- Anti-cheat ----------
+
+model SuspiciousEvent {
+  id        String              @id @default(cuid())
+  attemptId String
+  attempt   QuizAttempt         @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User                @relation(fields: [userId], references: [id])
+  type      SuspiciousEventType
+  metadata  Json?
+  createdAt DateTime            @default(now())
+
+  @@index([attemptId])
+  @@index([userId])
+  @@map("suspicious_events")
+}
+
+// ---------- Certificates ----------
+
+model Certificate {
+  id                String      @id @default(cuid())
+  certificateCode   String      @unique
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  userId            String
+  user              User        @relation(fields: [userId], references: [id])
+  courseId          String?
+  course            Course?     @relation(fields: [courseId], references: [id])
+  quizId            String?
+  quiz              Quiz?       @relation(fields: [quizId], references: [id])
+  attemptId         String?     @unique
+  attempt           QuizAttempt? @relation(fields: [attemptId], references: [id])
+  score             Float
+  rank              Int?
+  issuedAt          DateTime    @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@map("certificates")
+}
+
+// ---------- Notifications ----------
+
+model Notification {
+  id             String              @id @default(cuid())
+  organizationId String?
+  organization   Organization?       @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User                @relation(fields: [userId], references: [id])
+  type           String
+  title          String
+  body           String
+  channel        NotificationChannel @default(EMAIL)
+  status         NotificationStatus  @default(PENDING)
+  sentAt         DateTime?
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+// ---------- Audit ----------
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id])
+  action         String
+  entityType     String?
+  entityId       String?
+  ipAddress      String?
+  userAgent      String?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([action])
+  @@map("audit_logs")
+}
