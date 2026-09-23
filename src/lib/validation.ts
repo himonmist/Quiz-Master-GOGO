@@ -44,6 +44,11 @@ export const resetPasswordSchema = z
     path: ["confirmPassword"],
   });
 
+export const organizationSchema = z.object({
+  name: z.string().trim().min(2).max(160),
+  description: z.string().trim().max(500).optional().or(z.literal("")),
+});
+
 export const courseSchema = z.object({
   title: z.string().trim().min(2).max(160),
   description: z.string().trim().max(2000).optional().or(z.literal("")),

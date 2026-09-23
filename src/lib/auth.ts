@@ -140,6 +140,7 @@ export function assertRole(user: SafeUser | null, allowed: Role[]): user is Safe
   return !!user && allowed.includes(user.role);
 }
 
+export const SUPER_ADMIN_ROLES: Role[] = ["SUPER_ADMIN"];
 export const ADMIN_ROLES: Role[] = ["SUPER_ADMIN", "ORG_ADMIN"];
 export const STAFF_ROLES: Role[] = ["SUPER_ADMIN", "ORG_ADMIN", "QUIZ_MANAGER"];
 

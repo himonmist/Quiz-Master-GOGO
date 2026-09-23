@@ -15,6 +15,7 @@ const NAV = [
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser(STAFF_ROLES);
+  const nav = user.role === "SUPER_ADMIN" ? [...NAV, { href: "/admin/organizations", label: "Organizations" }] : NAV;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
@@ -31,7 +32,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         }}
       >
         <div style={{ fontFamily: "var(--font-heading)", fontSize: 17, marginBottom: 20 }}>GOGO ADMIN</div>
-        {NAV.map((item) => (
+        {nav.map((item) => (
           <Link key={item.href} href={item.href} style={{ padding: "10px 14px", fontSize: 14, textDecoration: "none", color: "var(--color-bg)", opacity: 0.85, borderRadius: 999 }}>
             {item.label}
           </Link>
