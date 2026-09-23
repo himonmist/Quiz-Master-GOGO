@@ -14,23 +14,48 @@ interface Category {
 
 type QuestionType = "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TRUE_FALSE";
 
-export function NewQuestionForm({ courses, categories }: { courses: Course[]; categories: Category[] }) {
+interface InitialQuestion {
+  id: string;
+  type: QuestionType;
+  text: string;
+  courseId: string;
+  categoryId: string;
+  difficulty: "EASY" | "MEDIUM" | "HARD";
+  marks: number;
+  timeLimitSeconds: number;
+  negativeMarks: number;
+  explanation: string;
+  options: { text: string; isCorrect: boolean }[];
+}
+
+export function NewQuestionForm({
+  courses,
+  categories,
+  initial,
+}: {
+  courses: Course[];
+  categories: Category[];
+  initial?: InitialQuestion;
+}) {
   const router = useRouter();
-  const [type, setType] = useState<QuestionType>("SINGLE_CHOICE");
-  const [text, setText] = useState("");
-  const [courseId, setCourseId] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [difficulty, setDifficulty] = useState<"EASY" | "MEDIUM" | "HARD">("MEDIUM");
-  const [marks, setMarks] = useState(10);
-  const [timeLimitSeconds, setTimeLimitSeconds] = useState(20);
-  const [negativeMarks, setNegativeMarks] = useState(0);
-  const [explanation, setExplanation] = useState("");
-  const [options, setOptions] = useState<{ text: string; isCorrect: boolean }[]>([
-    { text: "", isCorrect: true },
-    { text: "", isCorrect: false },
-    { text: "", isCorrect: false },
-    { text: "", isCorrect: false },
-  ]);
+  const isEditing = !!initial;
+  const [type, setType] = useState<QuestionType>(initial?.type ?? "SINGLE_CHOICE");
+  const [text, setText] = useState(initial?.text ?? "");
+  const [courseId, setCourseId] = useState(initial?.courseId ?? "");
+  const [categoryId, setCategoryId] = useState(initial?.categoryId ?? "");
+  const [difficulty, setDifficulty] = useState<"EASY" | "MEDIUM" | "HARD">(initial?.difficulty ?? "MEDIUM");
+  const [marks, setMarks] = useState(initial?.marks ?? 10);
+  const [timeLimitSeconds, setTimeLimitSeconds] = useState(initial?.timeLimitSeconds ?? 20);
+  const [negativeMarks, setNegativeMarks] = useState(initial?.negativeMarks ?? 0);
+  const [explanation, setExplanation] = useState(initial?.explanation ?? "");
+  const [options, setOptions] = useState<{ text: string; isCorrect: boolean }[]>(
+    initial?.options ?? [
+      { text: "", isCorrect: true },
+      { text: "", isCorrect: false },
+      { text: "", isCorrect: false },
+      { text: "", isCorrect: false },
+    ]
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -69,8 +94,8 @@ export function NewQuestionForm({ courses, categories }: { courses: Course[]; ca
 
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/questions", {
-        method: "POST",
+      const res = await fetch(isEditing ? `/api/admin/questions/${initial.id}` : "/api/admin/questions", {
+        method: isEditing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type,
@@ -88,7 +113,7 @@ export function NewQuestionForm({ courses, categories }: { courses: Course[]; ca
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Could not create question");
+        setError(data.error ?? `Could not ${isEditing ? "save" : "create"} question`);
         return;
       }
       router.push("/admin/questions");
@@ -199,7 +224,7 @@ export function NewQuestionForm({ courses, categories }: { courses: Course[]; ca
 
       {error ? <p style={{ color: "var(--color-danger)", fontSize: 13 }}>{error}</p> : null}
       <button className="btn btn-primary" onClick={onSubmit} disabled={loading} style={{ alignSelf: "flex-start" }}>
-        {loading ? "Saving…" : "Save question"}
+        {loading ? "Saving…" : isEditing ? "Save changes" : "Save question"}
       </button>
     </div>
   );

@@ -46,7 +46,10 @@ export default async function AdminQuestionsPage() {
                   <span className="tag tag-accent-2">{q.difficulty}</span>
                 </td>
                 <td className="text-muted">{q.course?.title ?? "—"}</td>
-                <td>
+                <td style={{ display: "flex", gap: 4 }}>
+                  <Link href={`/admin/questions/${q.id}/edit`} className="btn btn-ghost btn-sm">
+                    Edit
+                  </Link>
                   <DeleteQuestionButton questionId={q.id} />
                 </td>
               </tr>
